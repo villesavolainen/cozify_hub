@@ -22,6 +22,13 @@
           "hub": "Cozify HUB"
         }
       },
+      "connection_mode": {
+        "title": "Yhteystapa",
+        "description": "Valitse yhteystapa HUB-laitteelle {hub_name}.",
+        "data": {
+          "connection_mode": "Yhteystapa"
+        }
+      },
       "hub_ip": {
         "title": "HUB:n IP-osoite",
         "description": "Automaattinen IP-osoitteen haku epäonnistui laitteelle {hub_name}. Anna HUB:n paikallinen IP-osoite (löytyy reitittimestä tai Cozify-sovelluksesta).",
@@ -32,6 +39,7 @@
     },
     "error": {
       "cannot_connect": "Yhteys epäonnistui. Tarkista IP-osoite ja verkko.",
+      "hub_not_reachable": "HUB ei ole tavoitettavissa paikallisesti eikä pilven kautta. Anna IP-osoite tai varmista yhteys.",
       "invalid_auth": "Virheellinen kirjautumiskoodi.",
       "no_hubs": "Tililtä ei löytynyt HUB-laitteita.",
       "unknown": "Odottamaton virhe. Tarkista lokit."
