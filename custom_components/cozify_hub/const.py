@@ -6,7 +6,7 @@ MANUFACTURER = "Cozify"
 
 # API Configuration
 API_URLS = {
-    "production": "https://cloudapi.cozify.io/ui/0.2",
+    "production": "https://api.cozify.fi/ui/0.2",
     "development": "https://testapi.cozify.fi/ui/0.2",
 }
 API_URLS_FALLBACK = {
