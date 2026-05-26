@@ -339,12 +339,21 @@ class CozifyHubAuth:
         url = f"{self._base_url}/hub/remote/hub"
         headers = {"Authorization": cloud_token, "X-Hub-Key": hub_token}
         try:
-            async with self._session.get(url, headers=headers) as resp:
+            async with self._session.get(
+                url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                _LOGGER.debug("get_hub_info_cloud status=%s", resp.status)
                 if resp.ok:
                     data = await resp.json(content_type=None)
                     return {"online": True, **data}
+                body = await resp.text()
+                _LOGGER.debug("get_hub_info_cloud non-ok body: %s", body[:200])
                 return {"online": False}
-        except aiohttp.ClientError:
+        except asyncio.TimeoutError:
+            _LOGGER.debug("get_hub_info_cloud timeout")
+            return {"online": False}
+        except aiohttp.ClientError as err:
+            _LOGGER.debug("get_hub_info_cloud error: %s", err)
             return {"online": False}
 
     async def get_hub_info_local(self, hub_host: str, hub_token: str) -> dict[str, Any]:
