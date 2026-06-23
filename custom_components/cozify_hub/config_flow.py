@@ -64,6 +64,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
         self._hub_keys: dict[str, str] = {}  # hub_id -> hub_token
         self._hub_names: dict[str, str] = {}  # hub_id -> name
         self._selected_hub_id: str | None = None
+        self._reauth_connection_mode: str = CONNECTION_MODE_LOCAL
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -238,42 +239,24 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Triggered by ConfigEntryAuthFailed — restart auth for existing entry."""
         self._email = entry_data.get(CONF_EMAIL)
-        if entry_data.get(CONF_CONNECTION_MODE) == CONNECTION_MODE_LOCAL:
-            return await self.async_step_reauth_local()
-        return await self.async_step_reauth_cloud_email()
+        self._reauth_connection_mode = entry_data.get(CONF_CONNECTION_MODE, CONNECTION_MODE_LOCAL)
 
-    async def async_step_reauth_local(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Local reauth: re-enter hub token."""
-        errors: dict[str, str] = {}
-        entry = self._get_reauth_entry()
-
-        if user_input is not None:
-            hub_token = user_input["hub_token"].strip()
+        if self._email:
+            # Email known — send OTP automatically, go straight to OTP entry
             session = async_get_clientsession(self.hass)
             auth = CozifyHubAuth(session, API_ENVIRONMENT_PRODUCTION)
             try:
-                info = await auth.get_hub_info_local(entry.data[CONF_HUB_HOST], hub_token)
-                if info.get("reachable"):
-                    return self.async_update_reload_and_abort(
-                        entry, data_updates={CONF_HUB_TOKEN: hub_token}
-                    )
-                errors["base"] = "cannot_connect"
+                await auth.request_otp(self._email)
+                return await self.async_step_reauth_otp()
             except Exception as err:
-                _LOGGER.error("Local reauth failed: %s", err)
-                errors["base"] = "cannot_connect"
+                _LOGGER.warning("Auto OTP send failed, asking user to confirm email: %s", err)
 
-        return self.async_show_form(
-            step_id="reauth_local",
-            data_schema=vol.Schema({vol.Required("hub_token"): str}),
-            errors=errors,
-        )
+        return await self.async_step_reauth_email()
 
-    async def async_step_reauth_cloud_email(
+    async def async_step_reauth_email(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Cloud reauth step 1: enter email and request OTP."""
+        """Reauth: enter or confirm email address and request OTP."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -283,7 +266,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 await auth.request_otp(email)
                 self._email = email
-                return await self.async_step_reauth_cloud_otp()
+                return await self.async_step_reauth_otp()
             except CozifyHubConnectionError as err:
                 _LOGGER.error("Reauth OTP request failed: %s", err)
                 errors["base"] = "cannot_connect"
@@ -292,17 +275,17 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="reauth_cloud_email",
+            step_id="reauth_email",
             data_schema=vol.Schema({
                 vol.Required("email", default=self._email or ""): str
             }),
             errors=errors,
         )
 
-    async def async_step_reauth_cloud_otp(
+    async def async_step_reauth_otp(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Cloud reauth step 2: verify OTP and update stored tokens."""
+        """Reauth: verify OTP and update stored tokens."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -318,13 +301,11 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 if not new_hub_token:
                     errors["base"] = "no_hubs"
                 else:
+                    data_updates = {CONF_HUB_TOKEN: new_hub_token, CONF_EMAIL: self._email}
+                    if self._reauth_connection_mode != CONNECTION_MODE_LOCAL:
+                        data_updates[CONF_CLOUD_TOKEN] = cloud_token
                     return self.async_update_reload_and_abort(
-                        entry,
-                        data_updates={
-                            CONF_CLOUD_TOKEN: cloud_token,
-                            CONF_HUB_TOKEN: new_hub_token,
-                            CONF_EMAIL: self._email,
-                        },
+                        entry, data_updates=data_updates
                     )
             except CozifyHubAuthError:
                 errors["base"] = "invalid_auth"
@@ -336,7 +317,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "unknown"
 
         return self.async_show_form(
-            step_id="reauth_cloud_otp",
+            step_id="reauth_otp",
             data_schema=vol.Schema({vol.Required("otp"): str}),
             errors=errors,
             description_placeholders={"email": self._email or ""},
