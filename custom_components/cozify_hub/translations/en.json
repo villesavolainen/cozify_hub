@@ -47,5 +47,33 @@
     "abort": {
       "already_configured": "Tämä Cozify HUB on jo konfiguroitu."
     }
+  },
+  "reauth": {
+    "step": {
+      "reauth_local": {
+        "title": "Kirjaudu uudelleen — paikallinen tila",
+        "description": "Kirjautuminen on vanhentunut. Anna uusi HUB-avain.",
+        "data": {
+          "hub_token": "HUB-avain"
+        }
+      },
+      "reauth_cloud_email": {
+        "title": "Kirjaudu uudelleen — pilvipalvelu",
+        "description": "Kirjautuminen on vanhentunut. Anna sähköpostiosoite uuden kirjautumiskoodin saamiseksi.",
+        "data": {
+          "email": "Sähköpostiosoite"
+        }
+      },
+      "reauth_cloud_otp": {
+        "title": "Syötä kirjautumiskoodi",
+        "description": "Kirjautumiskoodi on lähetetty osoitteeseen {email}. Syötä koodi alle.",
+        "data": {
+          "otp": "Kirjautumiskoodi"
+        }
+      }
+    },
+    "abort": {
+      "reauth_successful": "Kirjautuminen uusittu onnistuneesti."
+    }
   }
 }

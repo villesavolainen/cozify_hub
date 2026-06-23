@@ -231,6 +231,117 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
             self._cloud_token,
         )
 
+    # ── Reauthentication ──────────────────────────────────────────────────────
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> ConfigFlowResult:
+        """Triggered by ConfigEntryAuthFailed — restart auth for existing entry."""
+        self._email = entry_data.get(CONF_EMAIL)
+        if entry_data.get(CONF_CONNECTION_MODE) == CONNECTION_MODE_LOCAL:
+            return await self.async_step_reauth_local()
+        return await self.async_step_reauth_cloud_email()
+
+    async def async_step_reauth_local(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Local reauth: re-enter hub token."""
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            hub_token = user_input["hub_token"].strip()
+            session = async_get_clientsession(self.hass)
+            auth = CozifyHubAuth(session, API_ENVIRONMENT_PRODUCTION)
+            try:
+                info = await auth.get_hub_info_local(entry.data[CONF_HUB_HOST], hub_token)
+                if info.get("reachable"):
+                    return self.async_update_reload_and_abort(
+                        entry, data_updates={CONF_HUB_TOKEN: hub_token}
+                    )
+                errors["base"] = "cannot_connect"
+            except Exception as err:
+                _LOGGER.error("Local reauth failed: %s", err)
+                errors["base"] = "cannot_connect"
+
+        return self.async_show_form(
+            step_id="reauth_local",
+            data_schema=vol.Schema({vol.Required("hub_token"): str}),
+            errors=errors,
+        )
+
+    async def async_step_reauth_cloud_email(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Cloud reauth step 1: enter email and request OTP."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            email = user_input["email"]
+            session = async_get_clientsession(self.hass)
+            auth = CozifyHubAuth(session, API_ENVIRONMENT_PRODUCTION)
+            try:
+                await auth.request_otp(email)
+                self._email = email
+                return await self.async_step_reauth_cloud_otp()
+            except CozifyHubConnectionError as err:
+                _LOGGER.error("Reauth OTP request failed: %s", err)
+                errors["base"] = "cannot_connect"
+            except Exception as err:
+                _LOGGER.exception("Unexpected reauth error: %s", err)
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reauth_cloud_email",
+            data_schema=vol.Schema({
+                vol.Required("email", default=self._email or ""): str
+            }),
+            errors=errors,
+        )
+
+    async def async_step_reauth_cloud_otp(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Cloud reauth step 2: verify OTP and update stored tokens."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            otp = user_input["otp"]
+            session = async_get_clientsession(self.hass)
+            auth = CozifyHubAuth(session, API_ENVIRONMENT_PRODUCTION)
+            try:
+                cloud_token = await auth.verify_otp(self._email, otp)
+                hub_keys = await auth.get_hub_keys(cloud_token)
+                entry = self._get_reauth_entry()
+                hub_id = entry.data[CONF_HUB_ID]
+                new_hub_token = hub_keys.get(hub_id)
+                if not new_hub_token:
+                    errors["base"] = "no_hubs"
+                else:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={
+                            CONF_CLOUD_TOKEN: cloud_token,
+                            CONF_HUB_TOKEN: new_hub_token,
+                            CONF_EMAIL: self._email,
+                        },
+                    )
+            except CozifyHubAuthError:
+                errors["base"] = "invalid_auth"
+            except CozifyHubConnectionError as err:
+                _LOGGER.error("Reauth connection error: %s", err)
+                errors["base"] = "cannot_connect"
+            except Exception as err:
+                _LOGGER.exception("Unexpected reauth error: %s", err)
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reauth_cloud_otp",
+            data_schema=vol.Schema({vol.Required("otp"): str}),
+            errors=errors,
+            description_placeholders={"email": self._email or ""},
+        )
+
     # ── Entry creation ────────────────────────────────────────────────────────
 
     async def _create_entry(

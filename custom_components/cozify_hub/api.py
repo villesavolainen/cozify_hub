@@ -60,6 +60,13 @@ class CozifyHubApi:
         if hub_token:
             self._hub_token = hub_token
 
+    async def refresh_cloud_token(self) -> str:
+        """Refresh the cloud token and update internal state."""
+        auth = CozifyHubAuth(self._session, self._api_environment)
+        new_token = await auth.refresh_session(self._cloud_token)
+        self._cloud_token = new_token
+        return new_token
+
     def _get_ssl_context(self) -> bool:
         # Local mode: hub uses self-signed cert — skip verification
         # aiohttp accepts False to disable SSL verification without

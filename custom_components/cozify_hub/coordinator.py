@@ -11,6 +11,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import CozifyHubApi, CozifyHubApiError, CozifyHubAuthError
 from .const import (
+    CONF_CLOUD_TOKEN,
+    CONNECTION_MODE_CLOUD,
     CONNECTION_MODE_LOCAL,
     DEFAULT_SCAN_INTERVAL_CLOUD,
     DEFAULT_SCAN_INTERVAL_LOCAL,
@@ -33,6 +35,7 @@ class CozifyHubCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         self.api = api
         self._entry = entry
+        self._connection_mode = connection_mode
         interval = (DEFAULT_SCAN_INTERVAL_LOCAL
                     if connection_mode == CONNECTION_MODE_LOCAL
                     else DEFAULT_SCAN_INTERVAL_CLOUD)
@@ -40,38 +43,52 @@ class CozifyHubCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                          update_interval=interval)
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch all data from hub in parallel."""
+        """Fetch all data, refreshing cloud token once on auth failure."""
         try:
-            devices, rooms, scenes, groups, alarms = await asyncio.gather(
-                self.api.get_devices(),
-                self.api.get_rooms(),
-                self.api.get_scenes(),
-                self.api.get_groups(),
-                self.api.get_alarms(),
-            )
-
-            room_names = {
-                rid: rdata.get("name", rid)
-                for rid, rdata in (rooms or {}).items()
-            }
-
-            normalized = {}
-            for device_id, device_data in (devices or {}).items():
-                normalized[device_id] = self._normalize(device_id, device_data, room_names)
-
-            return {
-                "devices": normalized,
-                "rooms": rooms or {},
-                "scenes": scenes or {},
-                "groups": groups or {},
-                "alarms": alarms or {},
-            }
-
+            return await self._fetch_data()
         except CozifyHubAuthError as err:
+            if self._connection_mode == CONNECTION_MODE_CLOUD:
+                try:
+                    new_token = await self.api.refresh_cloud_token()
+                    self.hass.config_entries.async_update_entry(
+                        self._entry,
+                        data={**self._entry.data, CONF_CLOUD_TOKEN: new_token},
+                    )
+                    _LOGGER.info("Cloud token refreshed successfully")
+                    return await self._fetch_data()
+                except Exception as refresh_err:
+                    _LOGGER.warning("Token refresh failed: %s", refresh_err)
             from homeassistant.exceptions import ConfigEntryAuthFailed
             raise ConfigEntryAuthFailed(f"Token expired: {err}") from err
         except CozifyHubApiError as err:
             raise UpdateFailed(f"Cozify HUB error: {err}") from err
+
+    async def _fetch_data(self) -> dict[str, Any]:
+        """Fetch all data from hub in parallel."""
+        devices, rooms, scenes, groups, alarms = await asyncio.gather(
+            self.api.get_devices(),
+            self.api.get_rooms(),
+            self.api.get_scenes(),
+            self.api.get_groups(),
+            self.api.get_alarms(),
+        )
+
+        room_names = {
+            rid: rdata.get("name", rid)
+            for rid, rdata in (rooms or {}).items()
+        }
+
+        normalized = {}
+        for device_id, device_data in (devices or {}).items():
+            normalized[device_id] = self._normalize(device_id, device_data, room_names)
+
+        return {
+            "devices": normalized,
+            "rooms": rooms or {},
+            "scenes": scenes or {},
+            "groups": groups or {},
+            "alarms": alarms or {},
+        }
 
     def _normalize(self, device_id: str, d: dict[str, Any],
                    room_names: dict[str, str]) -> dict[str, Any]:
