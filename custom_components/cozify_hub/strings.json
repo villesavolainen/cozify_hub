@@ -43,8 +43,8 @@
   "reauth": {
     "step": {
       "reauth_email": {
-        "title": "Kirjaudu uudelleen",
-        "description": "Kirjautuminen on vanhentunut. Anna sähköpostiosoite kirjautumiskoodin saamiseksi.",
+        "title": "Kirjaudu uudelleen — {hub_name}",
+        "description": "Kirjautuminen on vanhentunut laitteelle **{hub_name}**. Vahvista sähköpostiosoite kirjautumiskoodin pyytämiseksi.",
         "data": {
           "email": "Sähköpostiosoite"
         }

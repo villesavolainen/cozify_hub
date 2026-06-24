@@ -65,6 +65,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
         self._hub_names: dict[str, str] = {}  # hub_id -> name
         self._selected_hub_id: str | None = None
         self._reauth_connection_mode: str = CONNECTION_MODE_LOCAL
+        self._reauth_hub_name: str = "Cozify HUB"
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -240,23 +241,13 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
         """Triggered by ConfigEntryAuthFailed — restart auth for existing entry."""
         self._email = entry_data.get(CONF_EMAIL)
         self._reauth_connection_mode = entry_data.get(CONF_CONNECTION_MODE, CONNECTION_MODE_LOCAL)
-
-        if self._email:
-            # Email known — send OTP automatically, go straight to OTP entry
-            session = async_get_clientsession(self.hass)
-            auth = CozifyHubAuth(session, API_ENVIRONMENT_PRODUCTION)
-            try:
-                await auth.request_otp(self._email)
-                return await self.async_step_reauth_otp()
-            except Exception as err:
-                _LOGGER.warning("Auto OTP send failed, asking user to confirm email: %s", err)
-
+        self._reauth_hub_name = entry_data.get(CONF_HUB_NAME, "Cozify HUB")
         return await self.async_step_reauth_email()
 
     async def async_step_reauth_email(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Reauth: enter or confirm email address and request OTP."""
+        """Reauth: confirm email and request OTP — only sends OTP on explicit submit."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -280,6 +271,7 @@ class CozifyHubConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required("email", default=self._email or ""): str
             }),
             errors=errors,
+            description_placeholders={"hub_name": self._reauth_hub_name},
         )
 
     async def async_step_reauth_otp(
